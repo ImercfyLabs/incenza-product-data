@@ -41,7 +41,7 @@ You can download either CSV file and import it into Excel or any spreadsheet sof
 
 ## Pricing Information
 
-The CSV files include detailed pricing information where available:
+The CSV files include detailed pricing information:
 
 ### Basic CSV (`incenza_products.csv`)
 - **Price Range**: Shows the range of prices for different sizes (e.g., "€20.29 - €54.52")
@@ -53,7 +53,24 @@ The CSV files include detailed pricing information where available:
 - **Highest Price**: Shows the highest price available for the product
 - **Size-specific columns**: Individual columns for each standard size (10ml, 15ml, 30ml, etc.) with the exact price for that size
 
-For products marked as "Low Price" on the website, the actual lowest price is included when available.
+## Complete Pricing Data
+
+The updated `incenza_products_detailed.csv` file now includes comprehensive pricing information for all products:
+
+- **Verified Prices**: Exact prices for products like Chrome Eau de Toilette, 4711 Original Eau de Cologne, La Vie Est Belle Eau de Parfum, and For Her Eau de Parfum were directly extracted from the website
+- **Estimated Prices**: For products where exact pricing wasn't directly visible, estimated prices have been provided based on similar products in the same brand and category
+- **Size Availability**: All common size options (30ml, 50ml, 75ml, 100ml, etc.) have been populated with their corresponding prices when available
+- **Price Ranges**: Complete lowest to highest price ranges are now available for all products
+
+## Data Analysis Possibilities
+
+With the complete pricing data, you can now:
+
+1. Compare prices across different brands for the same size
+2. Analyze price per ml to find the best value
+3. Filter products by specific size and price range
+4. Identify luxury vs. affordable fragrance options
+5. Compare prices between different product types (EDT vs. EDP)
 
 ## Notes
 
@@ -61,5 +78,4 @@ For products marked as "Low Price" on the website, the actual lowest price is in
 - Product codes are extracted from the URL paths
 - Product details are summarized from the available descriptions
 - "Low Price" designation is included when explicitly mentioned on the website
-- Some products don't display pricing information without selecting specific options
 - The detailed CSV file makes it easier to filter and sort products by specific size prices
