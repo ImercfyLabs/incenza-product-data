@@ -29,7 +29,7 @@
       "type": "n8n-nodes-base.function",
       "position": [250, 300],
       "parameters": {
-        "functionCode": "// Define job requirements\nconst jobRequirements = {\n  title: \"Software Engineer\",\n  skills: [\"JavaScript\", \"Node.js\", \"API Development\"],\n  experience: \"3+ years\",\n  education: \"Bachelor's in Computer Science or related field\",\n  location: \"Remote\"\n};\n\n// Get candidates from trigger\nconst candidates = $input.item.json;\n\n// Return data\nreturn {\n  json: { \n    jobRequirements,\n    candidates\n  }\n};"
+        "functionCode": "// Define job requirements\nconst jobRequirements = {\n  title: \"Software Engineer\",\n  skills: [\"JavaScript\", \"Node.js\", \"API Development\"],\n  experience: \"3+ years\",\n  education: \"Bachelor's in Computer Science or related field\",\n  location: \"Remote\"\n};\n\n// Get candidates from trigger\nconst candidates = $input.all();\n\n// Return data\nreturn [\n  {\n    json: { \n      jobRequirements,\n      candidates\n    }\n  }\n];"
       }
     },
     {
@@ -59,6 +59,10 @@
             {
               "name": "evaluatedCandidates",
               "value": "=[]"
+            },
+            {
+              "name": "candidatesList",
+              "value": "={{ $node[\"googleSheetsTrigger\"].json }}"
             }
           ]
         }
@@ -67,13 +71,11 @@
     {
       "id": "loopThroughCandidate",
       "name": "Loop Through Candidate",
-      "type": "n8n-nodes-base.splitInBatches",
+      "type": "n8n-nodes-base.code",
       "position": [550, 300],
       "parameters": {
-        "batchSize": 1,
-        "options": {
-          "reset": true
-        }
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Get current state\nconst currentIndex = $node[\"initializeVariables\"].json.currentIndex || 0;\nconst candidatesList = $node[\"initializeVariables\"].json.candidatesList || [];\nconst evaluatedCandidates = $node[\"initializeVariables\"].json.evaluatedCandidates || [];\nconst totalCandidates = candidatesList.length;\n\n// Check if we're done\nif (currentIndex >= totalCandidates) {\n  return {\n    json: {\n      processingComplete: true,\n      evaluatedCandidates,\n      currentIndex,\n      totalCandidates,\n      message: \"Processing complete\"\n    }\n  };\n}\n\n// Get current candidate\nconst candidate = candidatesList[currentIndex];\n\n// Return current candidate and state\nreturn {\n  json: {\n    ...candidate,\n    _currentIndex: currentIndex,\n    _totalCandidates: totalCandidates,\n    _processingComplete: false\n  }\n};"
       }
     },
     {
@@ -82,7 +84,7 @@
       "type": "n8n-nodes-base.function",
       "position": [700, 300],
       "parameters": {
-        "functionCode": "// Get current candidate\nconst candidate = $input.item.json;\nconst jobRequirements = $node[\"setJobRequirements\"].json.jobRequirements;\n\n// Format data for processing\nconst formattedData = {\n  candidate: {\n    name: candidate.name,\n    email: candidate.email,\n    phone: candidate.phone,\n    currentPosition: candidate.currentPosition,\n    skills: candidate.skills?.split(\",\") || [],\n    experience: candidate.experience,\n    education: candidate.education,\n    resumeFileId: candidate.resumeFileId\n  },\n  jobRequirements: jobRequirements\n};\n\nreturn {\n  json: formattedData\n};"
+        "functionCode": "// Get current candidate\nconst candidate = $input.item.json;\nconst jobRequirements = $node[\"setJobRequirements\"].json.jobRequirements;\n\n// Format data for processing\nconst formattedData = {\n  candidate: {\n    name: candidate.name,\n    email: candidate.email,\n    phone: candidate.phone,\n    currentPosition: candidate.currentPosition,\n    skills: candidate.skills?.split(\",\") || [],\n    experience: candidate.experience,\n    education: candidate.education,\n    resumeFileId: candidate.resumeFileId\n  },\n  jobRequirements: jobRequirements,\n  _currentIndex: candidate._currentIndex,\n  _totalCandidates: candidate._totalCandidates,\n  _processingComplete: candidate._processingComplete\n};\n\nreturn {\n  json: formattedData\n};"
       }
     },
     {
@@ -111,7 +113,7 @@
       "type": "n8n-nodes-base.function",
       "position": [1000, 300],
       "parameters": {
-        "functionCode": "// Get resume content from Google Drive\nconst resumeContent = $input.item.json.data;\nconst candidate = $input.item.json.candidate;\n\n// Extract relevant information from resume\n// This is a simplified example - in reality, you might use NLP or other techniques\nconst extractedInfo = {\n  skills: candidate.skills,\n  experience: candidate.experience,\n  education: candidate.education,\n  resumeText: resumeContent\n};\n\nreturn {\n  json: {\n    ...candidate,\n    extractedInfo\n  }\n};"
+        "functionCode": "// Get resume content from Google Drive\nconst resumeContent = $input.item.json.data;\nconst candidate = $input.item.json.candidate;\nconst metaData = {\n  _currentIndex: $input.item.json._currentIndex,\n  _totalCandidates: $input.item.json._totalCandidates,\n  _processingComplete: $input.item.json._processingComplete\n};\n\n// Extract relevant information from resume\n// This is a simplified example - in reality, you might use NLP or other techniques\nconst extractedInfo = {\n  skills: candidate.skills,\n  experience: candidate.experience,\n  education: candidate.education,\n  resumeText: resumeContent\n};\n\nreturn {\n  json: {\n    ...candidate,\n    extractedInfo,\n    ...metaData\n  }\n};"
       }
     },
     {
@@ -143,7 +145,7 @@
       "type": "n8n-nodes-base.function",
       "position": [1300, 300],
       "parameters": {
-        "functionCode": "// Get OpenAI response\nconst response = $input.item.json.response;\n\n// Parse JSON response\nlet evaluation;\ntry {\n  if (typeof response === 'string') {\n    evaluation = JSON.parse(response);\n  } else {\n    evaluation = response;\n  }\n} catch (error) {\n  // Handle parsing error\n  return {\n    json: {\n      error: 'Failed to parse evaluation',\n      originalResponse: response\n    }\n  };\n}\n\n// Combine with candidate data\nreturn {\n  json: {\n    candidateName: $input.item.json.name,\n    candidateEmail: $input.item.json.email,\n    evaluation: evaluation\n  }\n};"
+        "functionCode": "// Get OpenAI response\nconst response = $input.item.json.response;\nconst metaData = {\n  _currentIndex: $input.item.json._currentIndex,\n  _totalCandidates: $input.item.json._totalCandidates,\n  _processingComplete: $input.item.json._processingComplete\n};\n\n// Parse JSON response\nlet evaluation;\ntry {\n  if (typeof response === 'string') {\n    evaluation = JSON.parse(response);\n  } else {\n    evaluation = response;\n  }\n} catch (error) {\n  // Handle parsing error\n  return {\n    json: {\n      error: 'Failed to parse evaluation',\n      originalResponse: response,\n      ...metaData\n    }\n  };\n}\n\n// Combine with candidate data\nreturn {\n  json: {\n    candidateName: $input.item.json.name,\n    candidateEmail: $input.item.json.email,\n    evaluation: evaluation,\n    ...metaData\n  }\n};"
       }
     },
     {
@@ -152,7 +154,7 @@
       "type": "n8n-nodes-base.function",
       "position": [1450, 300],
       "parameters": {
-        "functionCode": "// Get workflow variables\nlet evaluatedCandidates = $node[\"initializeVariables\"].json.evaluatedCandidates;\nlet currentIndex = $node[\"initializeVariables\"].json.currentIndex;\nlet totalCandidates = $node[\"initializeVariables\"].json.totalCandidates;\n\n// Add current evaluation to array\nevaluatedCandidates.push($input.item.json);\n\n// Increment index\ncurrentIndex += 1;\n\n// Check if processing is complete\nconst processingComplete = currentIndex >= totalCandidates;\n\nreturn {\n  json: {\n    evaluatedCandidates,\n    currentIndex,\n    totalCandidates,\n    processingComplete\n  }\n};"
+        "functionCode": "// Get workflow variables\nlet evaluatedCandidates = $node[\"initializeVariables\"].json.evaluatedCandidates || [];\nlet currentIndex = $input.item.json._currentIndex;\nlet totalCandidates = $input.item.json._totalCandidates;\n\n// Add current evaluation to array\nevaluatedCandidates.push({\n  candidateName: $input.item.json.candidateName,\n  candidateEmail: $input.item.json.candidateEmail,\n  evaluation: $input.item.json.evaluation\n});\n\n// Increment index for next iteration\ncurrentIndex += 1;\n\n// Check if processing is complete\nconst processingComplete = currentIndex >= totalCandidates;\n\nreturn {\n  json: {\n    evaluatedCandidates,\n    currentIndex,\n    totalCandidates,\n    processingComplete\n  }\n};"
       }
     },
     {
@@ -174,9 +176,24 @@
     {
       "id": "continueLoop",
       "name": "Continue Loop",
-      "type": "n8n-nodes-base.noOp",
+      "type": "n8n-nodes-base.set",
       "position": [1750, 200],
-      "parameters": {}
+      "parameters": {
+        "values": {
+          "number": [
+            {
+              "name": "currentIndex",
+              "value": "={{ $input.item.json.currentIndex }}"
+            }
+          ],
+          "array": [
+            {
+              "name": "evaluatedCandidates",
+              "value": "={{ $input.item.json.evaluatedCandidates }}"
+            }
+          ]
+        }
+      }
     },
     {
       "id": "csvExport",
