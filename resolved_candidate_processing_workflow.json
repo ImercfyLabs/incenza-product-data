@@ -1,0 +1,397 @@
+{
+  "name": "Candidate Processing Workflow",
+  "nodes": [
+    {
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.start",
+      "position": [100, 300],
+      "parameters": {}
+    },
+    {
+      "id": "setJobRequirements",
+      "name": "Set Job Requirements",
+      "type": "n8n-nodes-base.function",
+      "position": [250, 300],
+      "parameters": {
+        "functionCode": "// Define job requirements\nconst jobRequirements = {\n  title: \"Software Engineer\",\n  skills: [\"JavaScript\", \"Node.js\", \"API Development\"],\n  experience: \"3+ years\",\n  education: \"Bachelor's in Computer Science or related field\",\n  location: \"Remote\"\n};\n\n// Return data\nreturn {\n  json: { jobRequirements }\n};"
+      }
+    },
+    {
+      "id": "googleSheetsAuth",
+      "name": "Google Sheets Auth",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [400, 300],
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "read",
+        "sheetName": "Candidates",
+        "range": "A:Z",
+        "options": {
+          "headerRow": true
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-credentials",
+          "name": "Google Sheets Account"
+        }
+      }
+    },
+    {
+      "id": "initializeVariables",
+      "name": "Initialize Variables",
+      "type": "n8n-nodes-base.set",
+      "position": [550, 300],
+      "parameters": {
+        "values": {
+          "number": [
+            {
+              "name": "currentIndex",
+              "value": 0
+            },
+            {
+              "name": "totalCandidates",
+              "value": "={{ $node[\"googleSheetsAuth\"].json.length }}"
+            }
+          ],
+          "boolean": [
+            {
+              "name": "processingComplete",
+              "value": false
+            }
+          ],
+          "array": [
+            {
+              "name": "evaluatedCandidates",
+              "value": "=[]"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "loopThroughCandidate",
+      "name": "Loop Through Candidate",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [700, 300],
+      "parameters": {
+        "batchSize": 1,
+        "options": {
+          "reset": true
+        }
+      }
+    },
+    {
+      "id": "prepareCandidateData",
+      "name": "Prepare Candidate Data",
+      "type": "n8n-nodes-base.function",
+      "position": [850, 300],
+      "parameters": {
+        "functionCode": "// Get current candidate\nconst candidate = $input.item.json;\nconst jobRequirements = $node[\"setJobRequirements\"].json.jobRequirements;\n\n// Format data for processing\nconst formattedData = {\n  candidate: {\n    name: candidate.name,\n    email: candidate.email,\n    phone: candidate.phone,\n    currentPosition: candidate.currentPosition,\n    skills: candidate.skills?.split(\",\") || [],\n    experience: candidate.experience,\n    education: candidate.education\n  },\n  jobRequirements: jobRequirements\n};\n\nreturn {\n  json: formattedData\n};"
+      }
+    },
+    {
+      "id": "googleDrive",
+      "name": "Google Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "position": [1000, 300],
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "download",
+        "fileId": "={{ $input.item.json.candidate.resumeFileId }}",
+        "options": {
+          "resolveData": true
+        }
+      },
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "google-drive-credentials",
+          "name": "Google Drive Account"
+        }
+      }
+    },
+    {
+      "id": "resumeExtraction",
+      "name": "Resume Extraction",
+      "type": "n8n-nodes-base.function",
+      "position": [1150, 300],
+      "parameters": {
+        "functionCode": "// Get resume content from Google Drive\nconst resumeContent = $input.item.json.data;\nconst candidate = $input.item.json.candidate;\n\n// Extract relevant information from resume\n// This is a simplified example - in reality, you might use NLP or other techniques\nconst extractedInfo = {\n  skills: candidate.skills,\n  experience: candidate.experience,\n  education: candidate.education,\n  resumeText: resumeContent\n};\n\nreturn {\n  json: {\n    ...candidate,\n    extractedInfo\n  }\n};"
+      }
+    },
+    {
+      "id": "openAIEvaluate",
+      "name": "OpenAI - Evaluate Candidate",
+      "type": "n8n-nodes-base.openAi",
+      "position": [1300, 300],
+      "parameters": {
+        "authentication": "apiKey",
+        "operation": "completion",
+        "model": "gpt-4",
+        "prompt": "=Evaluate the following candidate for the {{ $node[\"setJobRequirements\"].json.jobRequirements.title }} position.\n\nJob Requirements:\n{{ JSON.stringify($node[\"setJobRequirements\"].json.jobRequirements, null, 2) }}\n\nCandidate Information:\n{{ JSON.stringify($input.item.json, null, 2) }}\n\nProvide a detailed evaluation with the following:\n1. Skills match (score out of 10)\n2. Experience relevance (score out of 10)\n3. Education fit (score out of 10)\n4. Overall match (score out of 10)\n5. Strengths\n6. Areas of concern\n7. Final recommendation (Hire, Consider, Reject)\n\nFormat the response as JSON.",
+        "options": {
+          "maxTokens": 1000,
+          "temperature": 0.2,
+          "responseFormat": "json_object"
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credentials",
+          "name": "OpenAI Account"
+        }
+      }
+    },
+    {
+      "id": "parseEvaluationJSON",
+      "name": "Parse Evaluation JSON",
+      "type": "n8n-nodes-base.function",
+      "position": [1450, 300],
+      "parameters": {
+        "functionCode": "// Get OpenAI response\nconst response = $input.item.json.response;\n\n// Parse JSON response\nlet evaluation;\ntry {\n  if (typeof response === 'string') {\n    evaluation = JSON.parse(response);\n  } else {\n    evaluation = response;\n  }\n} catch (error) {\n  // Handle parsing error\n  return {\n    json: {\n      error: 'Failed to parse evaluation',\n      originalResponse: response\n    }\n  };\n}\n\n// Combine with candidate data\nreturn {\n  json: {\n    candidateName: $input.item.json.name,\n    candidateEmail: $input.item.json.email,\n    evaluation: evaluation\n  }\n};"
+      }
+    },
+    {
+      "id": "addToEvaluations",
+      "name": "Add To Evaluations",
+      "type": "n8n-nodes-base.function",
+      "position": [1600, 300],
+      "parameters": {
+        "functionCode": "// Get workflow variables\nlet evaluatedCandidates = $node[\"initializeVariables\"].json.evaluatedCandidates;\nlet currentIndex = $node[\"initializeVariables\"].json.currentIndex;\nlet totalCandidates = $node[\"initializeVariables\"].json.totalCandidates;\n\n// Add current evaluation to array\nevaluatedCandidates.push($input.item.json);\n\n// Increment index\ncurrentIndex += 1;\n\n// Check if processing is complete\nconst processingComplete = currentIndex >= totalCandidates;\n\nreturn {\n  json: {\n    evaluatedCandidates,\n    currentIndex,\n    totalCandidates,\n    processingComplete\n  }\n};"
+      }
+    },
+    {
+      "id": "isProcessingComplete",
+      "name": "Is Processing Complete?",
+      "type": "n8n-nodes-base.if",
+      "position": [1750, 300],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $input.item.json.processingComplete }}",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "continueLoop",
+      "name": "Continue Loop",
+      "type": "n8n-nodes-base.noOp",
+      "position": [1900, 200],
+      "parameters": {}
+    },
+    {
+      "id": "csvExport",
+      "name": "CSV Export",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "position": [1900, 400],
+      "parameters": {
+        "operation": "write",
+        "options": {
+          "headerRow": true,
+          "fileName": "candidate_evaluations.csv"
+        },
+        "sourceData": "={{ $input.item.json.evaluatedCandidates }}"
+      }
+    },
+    {
+      "id": "saveFile",
+      "name": "Save File",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "position": [2050, 400],
+      "parameters": {
+        "fileName": "={{ $now.format(\"YYYY-MM-DD\") }}_candidate_evaluations.csv",
+        "options": {
+          "encoding": "utf8"
+        }
+      }
+    },
+    {
+      "id": "generateReport",
+      "name": "Generate Report",
+      "type": "n8n-nodes-base.function",
+      "position": [2200, 400],
+      "parameters": {
+        "functionCode": "// Get evaluated candidates\nconst evaluatedCandidates = $input.item.json.evaluatedCandidates;\n\n// Generate summary statistics\nconst totalCandidates = evaluatedCandidates.length;\nlet recommendedHires = 0;\nlet considerCandidates = 0;\nlet rejectedCandidates = 0;\n\nevaluatedCandidates.forEach(candidate => {\n  const recommendation = candidate.evaluation.finalRecommendation;\n  if (recommendation === 'Hire') recommendedHires++;\n  else if (recommendation === 'Consider') considerCandidates++;\n  else if (recommendation === 'Reject') rejectedCandidates++;\n});\n\n// Generate HTML report\nconst htmlReport = `\n<html>\n<head>\n  <title>Candidate Evaluation Report</title>\n  <style>\n    body { font-family: Arial, sans-serif; margin: 20px; }\n    h1 { color: #2c3e50; }\n    .summary { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; }\n    table { width: 100%; border-collapse: collapse; }\n    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }\n    th { background-color: #f2f2f2; }\n    .hire { color: green; }\n    .consider { color: orange; }\n    .reject { color: red; }\n  </style>\n</head>\n<body>\n  <h1>Candidate Evaluation Report</h1>\n  \n  <div class=\"summary\">\n    <h2>Summary</h2>\n    <p>Total Candidates: ${totalCandidates}</p>\n    <p>Recommended for Hire: ${recommendedHires}</p>\n    <p>Consider: ${considerCandidates}</p>\n    <p>Reject: ${rejectedCandidates}</p>\n  </div>\n  \n  <h2>Detailed Evaluations</h2>\n  <table>\n    <tr>\n      <th>Name</th>\n      <th>Skills Match</th>\n      <th>Experience</th>\n      <th>Education</th>\n      <th>Overall</th>\n      <th>Recommendation</th>\n    </tr>\n    ${evaluatedCandidates.map(candidate => `\n    <tr>\n      <td>${candidate.candidateName}</td>\n      <td>${candidate.evaluation.skillsMatch}/10</td>\n      <td>${candidate.evaluation.experienceRelevance}/10</td>\n      <td>${candidate.evaluation.educationFit}/10</td>\n      <td>${candidate.evaluation.overallMatch}/10</td>\n      <td class=\"${candidate.evaluation.finalRecommendation.toLowerCase()}\">${candidate.evaluation.finalRecommendation}</td>\n    </tr>\n    `).join('')}\n  </table>\n</body>\n</html>\n`;\n\nreturn {\n  json: {\n    report: htmlReport,\n    summary: {\n      totalCandidates,\n      recommendedHires,\n      considerCandidates,\n      rejectedCandidates\n    }\n  }\n};"
+      }
+    }
+  ],
+  "connections": {
+    "start": {
+      "main": [
+        [
+          {
+            "node": "setJobRequirements",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "setJobRequirements": {
+      "main": [
+        [
+          {
+            "node": "googleSheetsAuth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "googleSheetsAuth": {
+      "main": [
+        [
+          {
+            "node": "initializeVariables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "initializeVariables": {
+      "main": [
+        [
+          {
+            "node": "loopThroughCandidate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "loopThroughCandidate": {
+      "main": [
+        [
+          {
+            "node": "prepareCandidateData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "prepareCandidateData": {
+      "main": [
+        [
+          {
+            "node": "googleDrive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "googleDrive": {
+      "main": [
+        [
+          {
+            "node": "resumeExtraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "resumeExtraction": {
+      "main": [
+        [
+          {
+            "node": "openAIEvaluate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "openAIEvaluate": {
+      "main": [
+        [
+          {
+            "node": "parseEvaluationJSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parseEvaluationJSON": {
+      "main": [
+        [
+          {
+            "node": "addToEvaluations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "addToEvaluations": {
+      "main": [
+        [
+          {
+            "node": "isProcessingComplete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "isProcessingComplete": {
+      "main": [
+        [
+          {
+            "node": "csvExport",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "continueLoop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "continueLoop": {
+      "main": [
+        [
+          {
+            "node": "loopThroughCandidate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "csvExport": {
+      "main": [
+        [
+          {
+            "node": "saveFile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "saveFile": {
+      "main": [
+        [
+          {
+            "node": "generateReport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
