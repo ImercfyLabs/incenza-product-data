@@ -1,0 +1,240 @@
+{
+  "workflowName": "Automated Candidate Evaluation Process",
+  "workflowDescription": "An n8n workflow that automates the candidate evaluation process by retrieving candidate data from Google Sheets, processing resumes from Google Drive, evaluating candidates using OpenAI, and generating reports.",
+  "workflowStages": [
+    {
+      "stageName": "Initialization",
+      "nodes": [
+        {
+          "nodeName": "Start",
+          "nodeType": "n8n-nodes-base.start",
+          "description": "Triggers the workflow execution",
+          "outputData": "Passes control to the next node"
+        },
+        {
+          "nodeName": "Set Job Requirements",
+          "nodeType": "n8n-nodes-base.function",
+          "description": "Defines the job requirements that will be used to evaluate candidates",
+          "functionLogic": "Defines a job requirements object with title, skills, experience, education, and location",
+          "outputData": "Job requirements object"
+        },
+        {
+          "nodeName": "Google Sheets Auth",
+          "nodeType": "n8n-nodes-base.googleSheets",
+          "description": "Authenticates with Google Sheets and retrieves candidate data",
+          "configuration": {
+            "authentication": "serviceAccount",
+            "operation": "read",
+            "sheetName": "Candidates",
+            "range": "A:Z"
+          },
+          "outputData": "Array of candidate records from the Google Sheet"
+        },
+        {
+          "nodeName": "Initialize Variables",
+          "nodeType": "n8n-nodes-base.set",
+          "description": "Sets up variables needed for processing the candidates",
+          "variables": [
+            "currentIndex: 0",
+            "totalCandidates: number of candidates from Google Sheets",
+            "processingComplete: false",
+            "evaluatedCandidates: empty array"
+          ],
+          "outputData": "Initialized variables"
+        }
+      ]
+    },
+    {
+      "stageName": "Candidate Processing Loop",
+      "nodes": [
+        {
+          "nodeName": "Loop Through Candidate",
+          "nodeType": "n8n-nodes-base.splitInBatches",
+          "description": "Processes candidates one at a time",
+          "configuration": {
+            "batchSize": 1,
+            "reset": true
+          },
+          "outputData": "Single candidate record"
+        },
+        {
+          "nodeName": "Prepare Candidate Data",
+          "nodeType": "n8n-nodes-base.function",
+          "description": "Formats the candidate data for processing",
+          "functionLogic": "Extracts candidate details and formats them with job requirements",
+          "outputData": "Formatted candidate data"
+        },
+        {
+          "nodeName": "Google Drive",
+          "nodeType": "n8n-nodes-base.googleDrive",
+          "description": "Downloads the candidate's resume from Google Drive",
+          "configuration": {
+            "authentication": "serviceAccount",
+            "operation": "download",
+            "fileId": "Dynamic from candidate data"
+          },
+          "outputData": "Resume file content"
+        },
+        {
+          "nodeName": "Resume Extraction",
+          "nodeType": "n8n-nodes-base.function",
+          "description": "Extracts relevant information from the resume",
+          "functionLogic": "Processes resume content to extract skills, experience, and education",
+          "outputData": "Candidate data enriched with resume information"
+        },
+        {
+          "nodeName": "OpenAI - Evaluate Candidate",
+          "nodeType": "n8n-nodes-base.openAi",
+          "description": "Uses OpenAI to evaluate the candidate against job requirements",
+          "configuration": {
+            "model": "gpt-4",
+            "prompt": "Detailed prompt asking for evaluation of candidate against job requirements"
+          },
+          "outputData": "AI evaluation of candidate"
+        },
+        {
+          "nodeName": "Parse Evaluation JSON",
+          "nodeType": "n8n-nodes-base.function",
+          "description": "Parses the JSON response from OpenAI",
+          "functionLogic": "Safely parses JSON and handles potential errors",
+          "outputData": "Structured evaluation data"
+        },
+        {
+          "nodeName": "Add To Evaluations",
+          "nodeType": "n8n-nodes-base.function",
+          "description": "Adds the current evaluation to the collection and updates processing status",
+          "functionLogic": "Updates evaluatedCandidates array, increments index, checks if processing is complete",
+          "outputData": "Updated processing status and evaluations array"
+        },
+        {
+          "nodeName": "Is Processing Complete?",
+          "nodeType": "n8n-nodes-base.if",
+          "description": "Checks if all candidates have been processed",
+          "condition": "processingComplete === true",
+          "outputData": {
+            "true": "Proceeds to report generation",
+            "false": "Continues the loop for next candidate"
+          }
+        },
+        {
+          "nodeName": "Continue Loop",
+          "nodeType": "n8n-nodes-base.noOp",
+          "description": "No-operation node that connects back to the loop",
+          "outputData": "Passes control back to Loop Through Candidate node"
+        }
+      ]
+    },
+    {
+      "stageName": "Report Generation",
+      "nodes": [
+        {
+          "nodeName": "CSV Export",
+          "nodeType": "n8n-nodes-base.spreadsheetFile",
+          "description": "Creates a CSV file with all candidate evaluations",
+          "configuration": {
+            "operation": "write",
+            "fileName": "candidate_evaluations.csv",
+            "sourceData": "evaluatedCandidates array"
+          },
+          "outputData": "CSV file in binary format"
+        },
+        {
+          "nodeName": "Save File",
+          "nodeType": "n8n-nodes-base.writeBinaryFile",
+          "description": "Saves the CSV file to disk",
+          "configuration": {
+            "fileName": "Date-stamped filename",
+            "encoding": "utf8"
+          },
+          "outputData": "File save confirmation"
+        },
+        {
+          "nodeName": "Generate Report",
+          "nodeType": "n8n-nodes-base.function",
+          "description": "Creates an HTML report with summary statistics and detailed evaluations",
+          "functionLogic": "Calculates statistics, formats HTML with tables and styling",
+          "outputData": "HTML report and summary statistics"
+        }
+      ]
+    }
+  ],
+  "dataFlow": {
+    "description": "The workflow follows a sequential process with a loop structure:",
+    "steps": [
+      "1. Initialize job requirements and variables",
+      "2. Fetch candidate data from Google Sheets",
+      "3. Process each candidate in a loop:",
+      "   a. Prepare candidate data",
+      "   b. Download and extract resume",
+      "   c. Evaluate candidate using OpenAI",
+      "   d. Parse and store evaluation",
+      "   e. Check if all candidates are processed",
+      "   f. If not complete, continue loop",
+      "4. When all candidates are processed:",
+      "   a. Export evaluations to CSV",
+      "   b. Save CSV file",
+      "   c. Generate HTML report"
+    ]
+  },
+  "requiredCredentials": [
+    {
+      "name": "Google Sheets Account",
+      "type": "googleSheetsOAuth2Api",
+      "usedIn": ["Google Sheets Auth node"]
+    },
+    {
+      "name": "Google Drive Account",
+      "type": "googleDriveOAuth2Api",
+      "usedIn": ["Google Drive node"]
+    },
+    {
+      "name": "OpenAI Account",
+      "type": "openAiApi",
+      "usedIn": ["OpenAI - Evaluate Candidate node"]
+    }
+  ],
+  "expectedInputs": {
+    "googleSheets": {
+      "sheetName": "Candidates",
+      "requiredColumns": [
+        "name",
+        "email",
+        "phone",
+        "currentPosition",
+        "skills",
+        "experience",
+        "education",
+        "resumeFileId"
+      ]
+    },
+    "googleDrive": {
+      "fileType": "Resume documents (PDF, DOCX, etc.)",
+      "accessRequirements": "Files must be accessible via the authenticated Google Drive account"
+    }
+  },
+  "expectedOutputs": {
+    "csvFile": {
+      "fileName": "YYYY-MM-DD_candidate_evaluations.csv",
+      "contents": "Candidate evaluations with scores and recommendations"
+    },
+    "htmlReport": {
+      "contents": "Summary statistics and detailed evaluation table",
+      "sections": [
+        "Summary (total candidates, hire/consider/reject counts)",
+        "Detailed evaluations table (name, scores, recommendation)"
+      ]
+    }
+  },
+  "errorHandling": {
+    "jsonParsing": "Handles potential JSON parsing errors from OpenAI responses",
+    "missingData": "Provides fallbacks for missing candidate data",
+    "apiFailures": "Can be enhanced with retry logic for API failures"
+  },
+  "optimizationTips": [
+    "Configure appropriate timeouts for API calls",
+    "Consider adding error notification nodes",
+    "Add data validation before submission to OpenAI",
+    "Implement caching for frequently accessed data",
+    "Add logging nodes for debugging and audit purposes"
+  ]
+}
