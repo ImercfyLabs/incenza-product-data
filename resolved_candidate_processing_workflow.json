@@ -2,29 +2,14 @@
   "name": "Candidate Processing Workflow",
   "nodes": [
     {
-      "id": "start",
-      "name": "Start",
-      "type": "n8n-nodes-base.start",
-      "position": [100, 300],
-      "parameters": {}
-    },
-    {
-      "id": "setJobRequirements",
-      "name": "Set Job Requirements",
-      "type": "n8n-nodes-base.function",
-      "position": [250, 300],
-      "parameters": {
-        "functionCode": "// Define job requirements\nconst jobRequirements = {\n  title: \"Software Engineer\",\n  skills: [\"JavaScript\", \"Node.js\", \"API Development\"],\n  experience: \"3+ years\",\n  education: \"Bachelor's in Computer Science or related field\",\n  location: \"Remote\"\n};\n\n// Return data\nreturn {\n  json: { jobRequirements }\n};"
-      }
-    },
-    {
-      "id": "googleSheetsAuth",
-      "name": "Google Sheets Auth",
+      "id": "googleSheetsTrigger",
+      "name": "Google Sheets Trigger",
       "type": "n8n-nodes-base.googleSheets",
-      "position": [400, 300],
+      "position": [100, 300],
       "parameters": {
         "authentication": "serviceAccount",
-        "operation": "read",
+        "operation": "getRows",
+        "documentId": "={{ $json.documentId }}",
         "sheetName": "Candidates",
         "range": "A:Z",
         "options": {
@@ -39,10 +24,19 @@
       }
     },
     {
+      "id": "setJobRequirements",
+      "name": "Set Job Requirements",
+      "type": "n8n-nodes-base.function",
+      "position": [250, 300],
+      "parameters": {
+        "functionCode": "// Define job requirements\nconst jobRequirements = {\n  title: \"Software Engineer\",\n  skills: [\"JavaScript\", \"Node.js\", \"API Development\"],\n  experience: \"3+ years\",\n  education: \"Bachelor's in Computer Science or related field\",\n  location: \"Remote\"\n};\n\n// Get candidates from trigger\nconst candidates = $input.item.json;\n\n// Return data\nreturn {\n  json: { \n    jobRequirements,\n    candidates\n  }\n};"
+      }
+    },
+    {
       "id": "initializeVariables",
       "name": "Initialize Variables",
       "type": "n8n-nodes-base.set",
-      "position": [550, 300],
+      "position": [400, 300],
       "parameters": {
         "values": {
           "number": [
@@ -52,7 +46,7 @@
             },
             {
               "name": "totalCandidates",
-              "value": "={{ $node[\"googleSheetsAuth\"].json.length }}"
+              "value": "={{ $node[\"googleSheetsTrigger\"].json.length }}"
             }
           ],
           "boolean": [
@@ -74,7 +68,7 @@
       "id": "loopThroughCandidate",
       "name": "Loop Through Candidate",
       "type": "n8n-nodes-base.splitInBatches",
-      "position": [700, 300],
+      "position": [550, 300],
       "parameters": {
         "batchSize": 1,
         "options": {
@@ -86,16 +80,16 @@
       "id": "prepareCandidateData",
       "name": "Prepare Candidate Data",
       "type": "n8n-nodes-base.function",
-      "position": [850, 300],
+      "position": [700, 300],
       "parameters": {
-        "functionCode": "// Get current candidate\nconst candidate = $input.item.json;\nconst jobRequirements = $node[\"setJobRequirements\"].json.jobRequirements;\n\n// Format data for processing\nconst formattedData = {\n  candidate: {\n    name: candidate.name,\n    email: candidate.email,\n    phone: candidate.phone,\n    currentPosition: candidate.currentPosition,\n    skills: candidate.skills?.split(\",\") || [],\n    experience: candidate.experience,\n    education: candidate.education\n  },\n  jobRequirements: jobRequirements\n};\n\nreturn {\n  json: formattedData\n};"
+        "functionCode": "// Get current candidate\nconst candidate = $input.item.json;\nconst jobRequirements = $node[\"setJobRequirements\"].json.jobRequirements;\n\n// Format data for processing\nconst formattedData = {\n  candidate: {\n    name: candidate.name,\n    email: candidate.email,\n    phone: candidate.phone,\n    currentPosition: candidate.currentPosition,\n    skills: candidate.skills?.split(\",\") || [],\n    experience: candidate.experience,\n    education: candidate.education,\n    resumeFileId: candidate.resumeFileId\n  },\n  jobRequirements: jobRequirements\n};\n\nreturn {\n  json: formattedData\n};"
       }
     },
     {
       "id": "googleDrive",
       "name": "Google Drive",
       "type": "n8n-nodes-base.googleDrive",
-      "position": [1000, 300],
+      "position": [850, 300],
       "parameters": {
         "authentication": "serviceAccount",
         "operation": "download",
@@ -115,7 +109,7 @@
       "id": "resumeExtraction",
       "name": "Resume Extraction",
       "type": "n8n-nodes-base.function",
-      "position": [1150, 300],
+      "position": [1000, 300],
       "parameters": {
         "functionCode": "// Get resume content from Google Drive\nconst resumeContent = $input.item.json.data;\nconst candidate = $input.item.json.candidate;\n\n// Extract relevant information from resume\n// This is a simplified example - in reality, you might use NLP or other techniques\nconst extractedInfo = {\n  skills: candidate.skills,\n  experience: candidate.experience,\n  education: candidate.education,\n  resumeText: resumeContent\n};\n\nreturn {\n  json: {\n    ...candidate,\n    extractedInfo\n  }\n};"
       }
@@ -124,7 +118,7 @@
       "id": "openAIEvaluate",
       "name": "OpenAI - Evaluate Candidate",
       "type": "n8n-nodes-base.openAi",
-      "position": [1300, 300],
+      "position": [1150, 300],
       "parameters": {
         "authentication": "apiKey",
         "operation": "completion",
@@ -147,7 +141,7 @@
       "id": "parseEvaluationJSON",
       "name": "Parse Evaluation JSON",
       "type": "n8n-nodes-base.function",
-      "position": [1450, 300],
+      "position": [1300, 300],
       "parameters": {
         "functionCode": "// Get OpenAI response\nconst response = $input.item.json.response;\n\n// Parse JSON response\nlet evaluation;\ntry {\n  if (typeof response === 'string') {\n    evaluation = JSON.parse(response);\n  } else {\n    evaluation = response;\n  }\n} catch (error) {\n  // Handle parsing error\n  return {\n    json: {\n      error: 'Failed to parse evaluation',\n      originalResponse: response\n    }\n  };\n}\n\n// Combine with candidate data\nreturn {\n  json: {\n    candidateName: $input.item.json.name,\n    candidateEmail: $input.item.json.email,\n    evaluation: evaluation\n  }\n};"
       }
@@ -156,7 +150,7 @@
       "id": "addToEvaluations",
       "name": "Add To Evaluations",
       "type": "n8n-nodes-base.function",
-      "position": [1600, 300],
+      "position": [1450, 300],
       "parameters": {
         "functionCode": "// Get workflow variables\nlet evaluatedCandidates = $node[\"initializeVariables\"].json.evaluatedCandidates;\nlet currentIndex = $node[\"initializeVariables\"].json.currentIndex;\nlet totalCandidates = $node[\"initializeVariables\"].json.totalCandidates;\n\n// Add current evaluation to array\nevaluatedCandidates.push($input.item.json);\n\n// Increment index\ncurrentIndex += 1;\n\n// Check if processing is complete\nconst processingComplete = currentIndex >= totalCandidates;\n\nreturn {\n  json: {\n    evaluatedCandidates,\n    currentIndex,\n    totalCandidates,\n    processingComplete\n  }\n};"
       }
@@ -165,7 +159,7 @@
       "id": "isProcessingComplete",
       "name": "Is Processing Complete?",
       "type": "n8n-nodes-base.if",
-      "position": [1750, 300],
+      "position": [1600, 300],
       "parameters": {
         "conditions": {
           "boolean": [
@@ -181,14 +175,14 @@
       "id": "continueLoop",
       "name": "Continue Loop",
       "type": "n8n-nodes-base.noOp",
-      "position": [1900, 200],
+      "position": [1750, 200],
       "parameters": {}
     },
     {
       "id": "csvExport",
       "name": "CSV Export",
       "type": "n8n-nodes-base.spreadsheetFile",
-      "position": [1900, 400],
+      "position": [1750, 400],
       "parameters": {
         "operation": "write",
         "options": {
@@ -202,7 +196,7 @@
       "id": "saveFile",
       "name": "Save File",
       "type": "n8n-nodes-base.writeBinaryFile",
-      "position": [2050, 400],
+      "position": [1900, 400],
       "parameters": {
         "fileName": "={{ $now.format(\"YYYY-MM-DD\") }}_candidate_evaluations.csv",
         "options": {
@@ -214,14 +208,14 @@
       "id": "generateReport",
       "name": "Generate Report",
       "type": "n8n-nodes-base.function",
-      "position": [2200, 400],
+      "position": [2050, 400],
       "parameters": {
         "functionCode": "// Get evaluated candidates\nconst evaluatedCandidates = $input.item.json.evaluatedCandidates;\n\n// Generate summary statistics\nconst totalCandidates = evaluatedCandidates.length;\nlet recommendedHires = 0;\nlet considerCandidates = 0;\nlet rejectedCandidates = 0;\n\nevaluatedCandidates.forEach(candidate => {\n  const recommendation = candidate.evaluation.finalRecommendation;\n  if (recommendation === 'Hire') recommendedHires++;\n  else if (recommendation === 'Consider') considerCandidates++;\n  else if (recommendation === 'Reject') rejectedCandidates++;\n});\n\n// Generate HTML report\nconst htmlReport = `\n<html>\n<head>\n  <title>Candidate Evaluation Report</title>\n  <style>\n    body { font-family: Arial, sans-serif; margin: 20px; }\n    h1 { color: #2c3e50; }\n    .summary { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; }\n    table { width: 100%; border-collapse: collapse; }\n    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }\n    th { background-color: #f2f2f2; }\n    .hire { color: green; }\n    .consider { color: orange; }\n    .reject { color: red; }\n  </style>\n</head>\n<body>\n  <h1>Candidate Evaluation Report</h1>\n  \n  <div class=\"summary\">\n    <h2>Summary</h2>\n    <p>Total Candidates: ${totalCandidates}</p>\n    <p>Recommended for Hire: ${recommendedHires}</p>\n    <p>Consider: ${considerCandidates}</p>\n    <p>Reject: ${rejectedCandidates}</p>\n  </div>\n  \n  <h2>Detailed Evaluations</h2>\n  <table>\n    <tr>\n      <th>Name</th>\n      <th>Skills Match</th>\n      <th>Experience</th>\n      <th>Education</th>\n      <th>Overall</th>\n      <th>Recommendation</th>\n    </tr>\n    ${evaluatedCandidates.map(candidate => `\n    <tr>\n      <td>${candidate.candidateName}</td>\n      <td>${candidate.evaluation.skillsMatch}/10</td>\n      <td>${candidate.evaluation.experienceRelevance}/10</td>\n      <td>${candidate.evaluation.educationFit}/10</td>\n      <td>${candidate.evaluation.overallMatch}/10</td>\n      <td class=\"${candidate.evaluation.finalRecommendation.toLowerCase()}\">${candidate.evaluation.finalRecommendation}</td>\n    </tr>\n    `).join('')}\n  </table>\n</body>\n</html>\n`;\n\nreturn {\n  json: {\n    report: htmlReport,\n    summary: {\n      totalCandidates,\n      recommendedHires,\n      considerCandidates,\n      rejectedCandidates\n    }\n  }\n};"
       }
     }
   ],
   "connections": {
-    "start": {
+    "googleSheetsTrigger": {
       "main": [
         [
           {
@@ -233,17 +227,6 @@
       ]
     },
     "setJobRequirements": {
-      "main": [
-        [
-          {
-            "node": "googleSheetsAuth",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "googleSheetsAuth": {
       "main": [
         [
           {
